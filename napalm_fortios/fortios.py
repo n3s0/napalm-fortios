@@ -58,14 +58,14 @@ class FortiOSDriver(NetworkDriver):
             # If vdom is global we go to the global vdom, execute the commands
             # and then back to the root. There is a catch, if the device doesn't
             # have vdoms enabled we have to execute the command in the root
-            command = 'conf global\n{command}\nend'.format(command=command)
+            command = f'conf global\n{command}\nend')
 
             # We skip the lines telling us that we changed vdom
             return self.device.execute_command(command)[1:-2]
         elif vdom not in ['global', None]:
             # If we have a vdom we change to the vdom, execute
             # the commands and then exit back to the root
-            command = 'conf vdom\nedit {vdom}\n{command}\nend'.format(vdom=vdom, command=command)
+            command = f'conf vdom\nedit {vdom}\n{command}\nend'
 
             # We skip the lines telling us that we changed vdom
             return self.device.execute_command(command)[3:-2]
@@ -82,7 +82,7 @@ class FortiOSDriver(NetworkDriver):
             elif '\t' in output[0]:
                 separator = '\t'
             else:
-                raise Exception('Unknown separator for block:\n{}'.format(output))
+                raise Exception(f'Unknown separator for block:\n{output}')
 
         return colon_separated_string_to_dict('\n'.join(output), separator)
 
@@ -185,7 +185,7 @@ class FortiOSDriver(NetworkDriver):
 
         interfaces = self._execute_command_with_vdom('get system interface | grep ==',
                                                      vdom='global')
-        interface_list = [x.split()[2] for x in interfaces if x.strip() is not '']
+        interface_list = [x.split()[2] for x in interfaces if x.strip() != '']
 
         domain = self._get_command_with_vdom('get system dns | grep domain',
                                              vdom='global')['domain']
@@ -230,7 +230,7 @@ class FortiOSDriver(NetworkDriver):
         interface_statistics = {}
         for interface in interface_list:
             if_data = self._execute_command_with_vdom(
-                'diagnose hardware deviceinfo nic {}'.format(interface), vdom='global')
+                f'diagnose hardware deviceinfo nic {interface}', vdom='global')
             parsed_data = {}
             if interface.startswith('mgmt'):
                 for line in if_data:
@@ -270,7 +270,7 @@ class FortiOSDriver(NetworkDriver):
             if len(interface_data)==0:
                 continue
             if interface_data[0].startswith('==['):
-                m = re.search("==\[(.+)\]", interface_data[0])
+                m = re.search(r"==\[(.+)\]", interface_data[0])
                 if_name = m.group(1)
             if if_name and interface_data[0]=="ip:" and interface_data[1][0]!='0':
                 interface_ip_dictionary[if_name]={}
@@ -338,20 +338,28 @@ class FortiOSDriver(NetworkDriver):
         families = ['ipv4', 'ipv6']
         terms = dict({'accepted_prefixes': 'accepted', 'sent_prefixes': 'announced'})
         command_sum = 'get router info bgp sum'
-        command_detail = 'get router info bgp neighbor {}'
         command_received = 'get router info bgp neighbors {} received-routes | grep prefixes '
         peers = dict()
 
         bgp_sum = self._execute_command_with_vdom(command_sum)
 
-        re_neigh = re.compile("^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
-        neighbors = {n.split()[0]: n.split()[1:] for n in bgp_sum if re.match(re_neigh, n)}
+        re_neigh = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+        neighbors = {}
+        for n in bgp_sum:
+            if len(n.split()) > 0:
+                if re.match(re_neigh, n.split()[0]):
+                    neighbors[str(n.split()[0]] = n.split()[1:]
 
         self.device.load_config('router bgp')
 
         for neighbor, parameters in neighbors.items():
             logger.debug('NEW PEER')
-            neigh_conf = self.device.running_config['router bgp']['neighbor']['{}'.format(neighbor)]
+            # Need to add support for neigbor groups and neighbor ranges before
+            # this is removed.
+            try:
+                neigh_conf = self.device.running_config['router bgp']['neighbor'][f'{neighbor}']
+            except KeyError:
+                pass
 
             neighbor_dict = peers.get(neighbor, dict())
 
@@ -366,21 +374,23 @@ class FortiOSDriver(NetworkDriver):
                 neighbor_dict['address_family']['ipv4'] = dict()
                 neighbor_dict['address_family']['ipv6'] = dict()
 
-            detail_output = [x.lower() for x in
-                             self._execute_command_with_vdom(command_detail.format(neighbor))]
-            m = re.search('remote router id (.+?)\n', '\n'.join(detail_output))
+            command_detail = f'get router info bgp neighbor {neighbor}'
+            detail_output = []
+            for x n self.execute_command_with_vdom(command_detail):
+                detail_output.append(x.lower())
+            m = re.search(r'remote router id (.+?)\n', '\n'.join(detail_output))
             if m:
                 neighbor_dict['remote_id'] = str(m.group(1))
             else:
-                raise Exception('cannot find remote router id for %s' % neighbor)
+                raise Exception(f'cannot find remote router id for {neighbor}')
 
             for family in families:
                 # find block
-                x = detail_output.index(' for address family: {} unicast'.format(family))
+                x = detail_output.index(f' for address family: {family} unicast')
                 block = detail_output[x:]
 
                 for term, fortiname in terms.items():
-                    text = self._search_line_in_lines('%s prefixes' % fortiname, block)
+                    text = self._search_line_in_lines(f'{fortiname} prefixes', block)
                     t = [int(s) for s in text.split() if s.isdigit()][0]
                     neighbor_dict['address_family'][family][term] = t
 
@@ -395,7 +405,7 @@ class FortiOSDriver(NetworkDriver):
 
         return {
             'global': {
-                'router_id': str(bgp_sum[0].split()[3]),
+                'router_id': str(bgp_sum[0].split()),
                 'peers': peers
             }
         }
@@ -434,7 +444,7 @@ class FortiOSDriver(NetworkDriver):
         def get_cpu(cpu_lines):
             output = dict()
             for l in cpu_lines:
-                m = re.search('(.+?) states: (.+?)% user (.+?)% system (.+?)% nice (.+?)% idle', l)
+                m = re.search(r'(.+?) states: (.+?)% user (.+?)% system (.+?)% nice (.+?)% idle', l)
                 cpuname = m.group(1)
                 idle = m.group(5)
                 output[cpuname] = {
@@ -456,7 +466,7 @@ class FortiOSDriver(NetworkDriver):
         powers = dict()
 
         for line in sensors_block:
-            m = re.search("([0-9]+?) (.+\s[0-9]+?) (.+?) value=([0-9\.]+)", line)
+            m = re.search(r"([0-9]+?) (.+\s[0-9]+?) (.+?) value=([0-9\.]+)", line)
             if m:
                 if "TMP" in m.group(2).strip():
                     sensor_name, temp_value=m.group(3).strip(), m.group(4)
@@ -465,7 +475,7 @@ class FortiOSDriver(NetworkDriver):
                 elif "FAN" in m.group(2):
                     fans[m.group(2)+" - "+m.group(3).strip()] = dict(status=True)
             else:
-                m = re.search("([0-9]+?)\s(.+?)\s+alarm=([0-9]+)\s+value=([0-9\.]+)\s+threshold_status=([0-9]+)", line)
+                m = re.search(r"([0-9]+?)\s(.+?)\s+alarm=([0-9]+)\s+value=([0-9\.]+)\s+threshold_status=([0-9]+)", line)
                 if m:
                     if "TMP" in m.group(2) or "Temp" in m.group(2):
                         sensor_name, temp_value=m.group(2).strip(), m.group(4)

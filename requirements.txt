@@ -1,4 +1,5 @@
 napalm
-pyFG>=0.49_1
+#pyFG>=0.49_1
+pyfg
 future
-ncclient==0.6.9
+ncclient
