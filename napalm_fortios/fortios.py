@@ -58,7 +58,7 @@ class FortiOSDriver(NetworkDriver):
             # If vdom is global we go to the global vdom, execute the commands
             # and then back to the root. There is a catch, if the device doesn't
             # have vdoms enabled we have to execute the command in the root
-            command = f'conf global\n{command}\nend')
+            command = f'conf global\n{command}\nend'
 
             # We skip the lines telling us that we changed vdom
             return self.device.execute_command(command)[1:-2]
@@ -348,7 +348,7 @@ class FortiOSDriver(NetworkDriver):
         for n in bgp_sum:
             if len(n.split()) > 0:
                 if re.match(re_neigh, n.split()[0]):
-                    neighbors[str(n.split()[0]] = n.split()[1:]
+                    neighbors[str(n.split()[0])] = n.split()[1:]
 
         self.device.load_config('router bgp')
 
@@ -376,7 +376,7 @@ class FortiOSDriver(NetworkDriver):
 
             command_detail = f'get router info bgp neighbor {neighbor}'
             detail_output = []
-            for x n self.execute_command_with_vdom(command_detail):
+            for x in self.execute_command_with_vdom(command_detail):
                 detail_output.append(x.lower())
             m = re.search(r'remote router id (.+?)\n', '\n'.join(detail_output))
             if m:
